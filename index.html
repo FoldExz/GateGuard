@@ -1,0 +1,808 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <meta name="description" content="Futuristic smart gate monitoring dashboard"/>
+  <title>Pagar Monitor | Command Center</title>
+  
+  <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+  
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+    * { font-family: 'Inter', sans-serif; }
+    .font-mono { font-family: 'JetBrains Mono', monospace; }
+    .glass {
+      background: rgba(17, 25, 40, 0.75);
+      backdrop-filter: blur(16px) saturate(180%);
+      border: 1px solid rgba(255, 255, 255, 0.125);
+    }
+    .glow { box-shadow: 0 0 20px var(--glow-color-1), 0 0 40px var(--glow-color-2); }
+    .glow-cyan { --glow-color-1: rgba(34, 211, 238, 0.4); --glow-color-2: rgba(34, 211, 238, 0.2); }
+    .glow-purple { --glow-color-1: rgba(168, 85, 247, 0.4); --glow-color-2: rgba(168, 85, 247, 0.2); }
+    .glow-green { --glow-color-1: rgba(34, 197, 94, 0.4); --glow-color-2: rgba(34, 197, 94, 0.2); }
+    .glow-red { --glow-color-1: rgba(239, 68, 68, 0.4); --glow-color-2: rgba(239, 68, 68, 0.2); }
+    .metric-card {
+      background: linear-gradient(135deg, rgba(30, 30, 60, 0.8) 0%, rgba(20, 20, 40, 0.9) 100%);
+      border: 1px solid rgba(100, 100, 255, 0.2);
+      transition: all 0.3s ease;
+    }
+    .metric-card:hover { transform: translateY(-4px); border-color: rgba(100, 200, 255, 0.5); }
+    .pulse-dot { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(1.05); } }
+    .scan-line { position: relative; overflow: hidden; }
+    .scan-line::after {
+      content: '';
+      position: absolute;
+      top: 0; left: -100%;
+      width: 100%; height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(34, 211, 238, 0.2), transparent);
+      animation: scan 3s infinite;
+    }
+    @keyframes scan { to { left: 100%; } }
+    .text-gradient {
+      background: linear-gradient(135deg, #22d3ee 0%, #a855f7 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    input, select, button { transition: all 0.2s ease; }
+    input:focus, select:focus { transform: scale(1.01); }
+    .chart-container { position: relative; height: 200px; }
+    .spinner {
+      border: 3px solid rgba(34, 211, 238, 0.1);
+      border-top: 3px solid #22d3ee;
+      border-radius: 50%;
+      width: 24px; height: 24px;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .grid-bg {
+      background:
+        linear-gradient(rgba(34, 211, 238, 0.05) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(34, 211, 238, 0.05) 1px, transparent 1px),
+        linear-gradient(135deg, #0f0f23 0%, #1a0f2e 50%, #0f1419 100%);
+      background-size: 50px 50px, 50px 50px, auto;
+      background-attachment: fixed;
+    }
+  </style>
+</head>
+<body class="text-slate-100 min-h-screen grid-bg">
+  
+  <div id="loader" class="hidden fixed top-6 right-6 z-50 glass rounded-xl px-4 py-3 flex items-center gap-3 glow-cyan">
+    <div class="spinner"></div>
+    <span class="text-sm text-cyan-300 font-medium">Processing...</span>
+  </div>
+  
+  <div id="toast" class="hidden fixed top-6 left-1/2 -translate-x-1/2 z-50 glass rounded-xl px-6 py-4 text-sm max-w-md shadow-2xl"></div>
+  
+  <div class="max-w-[1600px] mx-auto p-4 sm:p-6 lg:p-8">
+    <header class="mb-8 scan-line">
+      <div class="flex flex-col md:flex-row items-center md:items-center justify-between gap-6">
+        <div class="w-full md:w-auto text-center md:text-left">
+          <h1 class="text-4xl font-bold text-gradient mb-2">PAGAR COMMAND CENTER</h1>
+          <p class="text-sm text-cyan-400/80 font-mono">Real-time monitoring & control system | RPL Team 6</p>
+        </div>
+
+        <div class="w-full md:w-auto text-center md:text-right">
+          <div id="status" class="inline-flex items-center gap-3 px-6 py-3 rounded-xl text-white font-bold text-lg glass mx-auto md:mx-0">
+            <span class="w-3 h-3 rounded-full pulse-dot"></span>
+            INITIALIZING
+          </div>
+          <div class="text-xs text-slate-400 mt-2 font-mono" id="lastUpdate">Waiting for data...</div>
+          <div class="text-xs text-green-400 mt-1 font-mono" id="realTimeClock">--:--:--</div>
+        </div>
+      </div>
+    </header>
+    
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <div class="metric-card rounded-xl p-5 glow-cyan">
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-xs text-cyan-400 font-semibold uppercase tracking-wider">Total Events</span>
+          <svg class="w-6 h-6 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+          </svg>
+        </div>
+        <div class="text-3xl font-bold text-white" id="totalEvents">0</div>
+        <div class="text-xs text-slate-400 mt-1 font-mono">All time</div>
+      </div>
+      
+      <div class="metric-card rounded-xl p-5 glow-green">
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-xs text-green-400 font-semibold uppercase tracking-wider">Open Count</span>
+          <svg class="w-6 h-6 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"/>
+          </svg>
+        </div>
+        <div class="text-3xl font-bold text-white" id="openCount">0</div>
+        <div class="text-xs text-slate-400 mt-1 font-mono">Today: <span id="openToday">0</span></div>
+      </div>
+      
+      <div class="metric-card rounded-xl p-5 glow-red">
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-xs text-red-400 font-semibold uppercase tracking-wider">Close Count</span>
+          <svg class="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+          </svg>
+        </div>
+        <div class="text-3xl font-bold text-white" id="closeCount">0</div>
+        <div class="text-xs text-slate-400 mt-1 font-mono">Today: <span id="closeToday">0</span></div>
+      </div>
+      
+      <div class="metric-card rounded-xl p-5 glow-purple">
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-xs text-purple-400 font-semibold uppercase tracking-wider">Notifications</span>
+          <svg class="w-6 h-6 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
+          </svg>
+        </div>
+        <div class="text-3xl font-bold text-white" id="notifCount">0</div>
+        <div class="text-xs text-slate-400 mt-1 font-mono">Active rules</div>
+      </div>
+    </div>
+    
+    <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+      <div class="xl:col-span-2 space-y-6">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div class="glass rounded-xl p-5">
+            <h3 class="text-sm font-semibold text-cyan-400 mb-4 flex items-center gap-2">
+              <span class="w-2 h-2 bg-cyan-400 rounded-full pulse-dot"></span>
+              ACTIVITY TIMELINE (24H)
+            </h3>
+            <div class="chart-container">
+              <canvas id="timelineChart"></canvas>
+            </div>
+          </div>
+          
+          <div class="glass rounded-xl p-5">
+            <h3 class="text-sm font-semibold text-purple-400 mb-4 flex items-center gap-2">
+              <span class="w-2 h-2 bg-purple-400 rounded-full pulse-dot"></span>
+              STATUS DISTRIBUTION
+            </h3>
+            <div class="chart-container">
+              <canvas id="pieChart"></canvas>
+            </div>
+          </div>
+        </div>
+        
+        <div class="glass rounded-xl p-5">
+          <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
+            <h3 class="text-sm font-semibold text-green-400 flex items-center gap-2">
+              <span class="w-2 h-2 bg-green-400 rounded-full pulse-dot"></span>
+              SYSTEM LOGS
+            </h3>
+            <div class="flex gap-2 flex-wrap">
+              <select id="filterLogs" class="px-3 py-1.5 text-xs bg-slate-800/50 border border-slate-600 rounded-lg text-white focus:border-cyan-400">
+                <option value="all">All Events</option>
+                <option value="open">Open Only</option>
+                <option value="closed">Closed Only</option>
+              </select>
+              <button id="sortLogs" class="px-3 py-1.5 text-xs bg-purple-500/20 text-purple-400 rounded-lg hover:bg-purple-500/30 border border-purple-500/30 font-semibold">
+                ⇅ Newest
+              </button>
+              <button id="downloadLogs" class="px-3 py-1.5 text-xs bg-blue-500/20 text-blue-400 rounded-lg hover:bg-blue-500/30 border border-blue-500/30 font-semibold">
+                ⬇ CSV
+              </button>
+              <button id="refreshLogs" class="px-3 py-1.5 text-xs bg-cyan-500/20 text-cyan-400 rounded-lg hover:bg-cyan-500/30 border border-cyan-500/30 font-semibold">
+                REFRESH
+              </button>
+              <button id="clearLogs" class="px-3 py-1.5 text-xs bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 border border-red-500/30 font-semibold">
+                CLEAR
+              </button>
+            </div>
+          </div>
+          
+          <div class="overflow-auto max-h-[400px] rounded-lg border border-slate-700/50">
+            <table class="w-full text-xs">
+              <thead class="bg-slate-800/50 sticky top-0">
+                <tr class="text-cyan-300 font-semibold">
+                  <th class="p-3 text-left font-mono">TIMESTAMP</th>
+                  <th class="p-3 text-left">EVENT</th>
+                </tr>
+              </thead>
+              <tbody id="logsBody" class="divide-y divide-slate-700/30 font-mono"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      
+      <aside class="space-y-6">
+        <div class="glass rounded-xl p-5">
+          <h3 class="text-sm font-semibold text-purple-400 mb-4 flex items-center gap-2">
+            <span class="w-2 h-2 bg-purple-400 rounded-full pulse-dot"></span>
+            NOTIFICATION CONFIG
+          </h3>
+          
+          <form id="form" class="space-y-4">
+            <div>
+              <label class="text-xs text-slate-400 font-semibold uppercase tracking-wide mb-2 block">Phone Number</label>
+              <input 
+                id="phone" 
+                type="tel"
+                class="w-full bg-slate-800/50 border border-cyan-500/30 rounded-lg px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 font-mono" 
+                placeholder="+62812345678" 
+                required 
+              />
+            </div>
+            
+            <div>
+              <label class="text-xs text-slate-400 font-semibold uppercase tracking-wide mb-2 block">Custom Alert</label>
+              <input 
+                id="alert" 
+                type="text"
+                maxlength="200"
+                class="w-full bg-slate-800/50 border border-purple-500/30 rounded-lg px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:border-purple-400 focus:ring-2 focus:ring-purple-400/20" 
+                placeholder="🚨 ALERT MESSAGE"
+              />
+            </div>
+            
+            <div class="flex items-center gap-3 p-3 bg-slate-800/30 rounded-lg">
+              <input id="addnew" type="checkbox" class="h-4 w-4 text-cyan-500 rounded focus:ring-cyan-400 bg-slate-700 border-slate-600" />
+              <label for="addnew" class="text-xs text-slate-300">Force create new ID (ignore edit)</label>
+            </div>
+            
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="text-xs text-slate-400 font-semibold uppercase tracking-wide mb-2 block">Trigger</label>
+                <select id="when" class="w-full bg-slate-800/50 border border-slate-600 rounded-lg px-3 py-2.5 text-sm text-white focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20">
+                  <option value="both">Both</option>
+                  <option value="open">Open</option>
+                  <option value="closed">Close</option>
+                </select>
+              </div>
+              <div>
+                <label class="text-xs text-slate-400 font-semibold uppercase tracking-wide mb-2 block">Delay (s)</label>
+                <select id="delay" class="w-full bg-slate-800/50 border border-slate-600 rounded-lg px-3 py-2.5 text-sm text-white focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20">
+                  <option value="0">0</option>
+                  <option value="120">120</option>
+                  <option value="240">240</option>
+                  <option value="300">300</option>
+                </select>
+              </div>
+            </div>
+            
+            <div class="flex gap-2">
+              <button type="submit" class="flex-1 px-4 py-3 bg-gradient-to-r from-cyan-500 to-blue-600 text-white rounded-lg hover:from-cyan-600 hover:to-blue-700 font-semibold text-sm shadow-lg glow-cyan">
+                SAVE CONFIG
+              </button>
+              <button id="testPreview" type="button" class="px-4 py-3 bg-slate-700/50 border border-slate-600 rounded-lg text-slate-300 hover:bg-slate-600/50 font-semibold text-sm">
+                TEST
+              </button>
+            </div>
+            
+            <!-- Message preview removed per request -->
+            <!--
+            <div>
+              <label class="text-xs text-slate-400 font-semibold uppercase tracking-wide mb-2 block">Message Preview</label>
+              <pre id="preview" class="p-4 bg-slate-900/50 rounded-lg text-xs text-green-400 font-mono border border-green-500/20 whitespace-pre-wrap">Waiting...</pre>
+            </div>
+            -->
+            
+          </form>
+        </div>
+        
+        <div class="glass rounded-xl p-5">
+          <h3 class="text-sm font-semibold text-green-400 mb-4 flex items-center gap-2">
+            <span class="w-2 h-2 bg-green-400 rounded-full pulse-dot"></span>
+            ACTIVE RULES
+          </h3>
+          <div class="overflow-auto max-h-64 rounded-lg border border-slate-700/50">
+            <table class="w-full text-xs">
+              <thead class="bg-slate-800/50 sticky top-0">
+                <tr class="text-slate-400 font-semibold">
+                  <th class="p-2">ID</th>
+                  <th class="p-2">Phone</th>
+                  <th class="p-2">When</th>
+                  <th class="p-2">Delay(s)</th>
+                  <th class="p-2">Action</th>
+                </tr>
+              </thead>
+              <tbody id="settingsBody" class="divide-y divide-slate-700/30 text-slate-300 font-mono"></tbody>
+            </table>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+    import { getDatabase, ref, onValue, set, remove, runTransaction, limitToLast, query, get } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js';
+    
+    const firebaseConfig = {
+      apiKey: "PASTE_APIKEY",
+      authDomain: "YOUR_PROJECT.firebaseapp.com",
+      databaseURL: "https://wemos-d1-mini-gerbang-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId: "YOUR_PROJECT_ID"
+    };
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+
+    const CONFIG = {
+      maxLogs: 1000,
+      toastDuration: 3500,
+      statusKeywords: {
+        open: ['open', 'terbuka', '1', 'on'],
+        closed: ['closed', 'tertutup', '0', 'off']
+      }
+    };
+
+    // ============ STATE =============
+    class AppState {
+      constructor() {
+        this.logs = [];
+        this.filteredLogs = [];
+        this.openCount = 0;
+        this.closeCount = 0;
+        this.openToday = 0;
+        this.closeToday = 0;
+        this.settings = {};
+        this.currentStatus = null;
+        this.lastUpdate = null;
+        this.timelineData = Array(24).fill(0);
+        this.statusData = { open: 0, closed: 0 };
+        this.sortNewest = true;
+        this.filterType = 'all';
+      }
+      reset() {
+        this.openCount = 0;
+        this.closeCount = 0;
+        this.openToday = 0;
+        this.closeToday = 0;
+        this.timelineData = Array(24).fill(0);
+      }
+    }
+    const state = new AppState();
+
+    // ============ DOM =============
+    const $ = (id) => document.getElementById(id);
+    const els = {
+      status: $('status'),
+      lastUpdate: $('lastUpdate'),
+      realTimeClock: $('realTimeClock'),
+      totalEvents: $('totalEvents'),
+      openCount: $('openCount'),
+      closeCount: $('closeCount'),
+      openToday: $('openToday'),
+      closeToday: $('closeToday'),
+      notifCount: $('notifCount'),
+      logsBody: $('logsBody'),
+      settingsBody: $('settingsBody'),
+      phone: $('phone'),
+      alert: $('alert'),
+      addNew: $('addnew'),
+      when: $('when'),
+      delay: $('delay'),
+      // preview removed
+      form: $('form'),
+      loader: $('loader'),
+      toast: $('toast')
+    };
+
+    // ============ UTILS =============
+    const utils = {
+      sanitize: (str) => {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+      },
+      phoneToKey: (phone) => {
+        const digits = (phone || '').replace(/\D/g, '');
+        return digits.length >= 10 ? digits : null;
+      },
+      toWIB: (date) => {
+        const offset = 7 * 60;
+        const utc = date.getTime() + (date.getTimezoneOffset() * 60000);
+        return new Date(utc + (offset * 60000));
+      },
+      parseTimestamp: (key, value) => {
+        if (!key && !value) return null;
+        const safeKey = String(key || '').trim().replace(/[\r\n]+/g, '');
+        const keyMatch = safeKey.match(/^(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})$/);
+        if (keyMatch) {
+          const [, yyyy, mm, dd, hh, min, sec] = keyMatch;
+          return new Date(yyyy, mm - 1, dd, hh, min, sec).getTime();
+        }
+        if (/^\d+$/.test(safeKey)) {
+          const num = Number(safeKey);
+          return safeKey.length === 10 ? num * 1000 : num;
+        }
+        const valueStr = (typeof value === 'string' ? value : JSON.stringify(value || '')).trim();
+        const dmSlashMatch = valueStr.match(/(\d{2})\/(\d{2})\/(\d{4})\D+(\d{2}):(\d{2}):(\d{2})/);
+        if (dmSlashMatch) {
+          const [, dd, mm, yyyy, hh, min, sec] = dmSlashMatch;
+          return new Date(yyyy, mm - 1, dd, hh, min, sec).getTime();
+        }
+        const combined = `${safeKey} ${valueStr}`;
+        const isoMatch = combined.match(/(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2}):(\d{2})/);
+        if (isoMatch) {
+          const [, yyyy, mm, dd, hh, min, sec] = isoMatch;
+          return new Date(yyyy, mm - 1, dd, hh, min, sec).getTime();
+        }
+        const tryDate = Date.parse(valueStr.replace(/,/g, ''));
+        if (!isNaN(tryDate)) return tryDate;
+        console.warn('Failed to parse timestamp for', key, value);
+        return null;
+      },
+      formatTime: (ms) => {
+        if (!ms) return '-';
+        const d = utils.toWIB(new Date(Number(ms)));
+        return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}`;
+      },
+      formatDate: (ms) => {
+        const d = utils.toWIB(new Date(Number(ms)));
+        const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+        return `${days[d.getDay()]} ${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
+      },
+      formatDateTime: (ms) => `${utils.formatTime(ms)} - ${utils.formatDate(ms)}`,
+      isToday: (ms) => {
+        const d = utils.toWIB(new Date(Number(ms)));
+        const today = utils.toWIB(new Date());
+        return d.toDateString() === today.toDateString();
+      },
+      extractStatus: (raw) => {
+        if (!raw) return '';
+        const str = (typeof raw === 'object' ? JSON.stringify(raw) : String(raw)).trim();
+        const afterLastComma = str.split(',').pop().trim().toLowerCase();
+        if (afterLastComma) {
+          if (/(^open$|^terbuka$|^1$|^on$)/.test(afterLastComma)) return 'open';
+          if (/(^closed$|^tertutup$|^0$|^off$)/.test(afterLastComma)) return 'closed';
+        }
+        const lower = str.toLowerCase();
+        const kws = (CONFIG && CONFIG.statusKeywords) ? CONFIG.statusKeywords : { open: ['open','terbuka'], closed: ['closed','tertutup'] };
+        const wordExists = (text, kw) => {
+          const esc = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          return new RegExp(`\\b${esc}\\b`, 'i').test(text);
+        };
+        if (kws.open.some(kw => wordExists(lower, kw))) return 'open';
+        if (kws.closed.some(kw => wordExists(lower, kw))) return 'closed';
+        return '';
+      },
+      downloadCSV: (data, filename) => {
+        const csv = [
+          ['Timestamp', 'Date', 'Time', 'Event', 'Status'],
+          ...data.map(log => [
+            log.ts,
+            utils.formatDate(log.ts),
+            utils.formatTime(log.ts),
+            typeof log.value === 'object' ? JSON.stringify(log.value) : log.value,
+            utils.extractStatus(log.value)
+          ])
+        ].map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
+        const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = filename;
+        link.click();
+        URL.revokeObjectURL(link.href);
+      }
+    };
+
+    // ============ CLOCK ============
+    setInterval(() => {
+      const now = utils.toWIB(new Date());
+      els.realTimeClock.textContent = `${utils.formatTime(now.getTime())} WIB`;
+    }, 1000);
+
+    // ============ UI ============
+    const ui = {
+      showLoader: (show = true) => {
+        els.loader.classList.toggle('hidden', !show);
+      },
+      showToast: (msg, type = 'info') => {
+        const colors = { success: 'text-green-400 border-green-500/30', error: 'text-red-400 border-red-500/30', info: 'text-cyan-400 border-cyan-500/30' };
+        els.toast.textContent = msg;
+        els.toast.className = `fixed top-6 left-1/2 -translate-x-1/2 z-50 glass rounded-xl px-6 py-4 text-sm max-w-md shadow-2xl ${colors[type] || colors.info}`;
+        els.toast.classList.remove('hidden');
+        setTimeout(() => els.toast.classList.add('hidden'), CONFIG.toastDuration);
+      },
+      updateStatus: (isOpen) => {
+        state.currentStatus = isOpen;
+        const statusConfig = isOpen ? { text: 'GATE OPEN', color: 'green', glow: 'glow-green' } : { text: 'GATE CLOSED', color: 'red', glow: 'glow-red' };
+        els.status.innerHTML = `<span class="w-3 h-3 rounded-full pulse-dot bg-${statusConfig.color}-400"></span>${statusConfig.text}`;
+        els.status.className = `inline-flex items-center gap-3 px-6 py-3 rounded-xl text-white font-bold text-lg glass ${statusConfig.glow}`;
+        // preview removed (no-op)
+      },
+      updateMetrics: () => {
+        els.totalEvents.textContent = state.logs.length;
+        els.openCount.textContent = state.openCount;
+        els.closeCount.textContent = state.closeCount;
+        els.openToday.textContent = state.openToday;
+        els.closeToday.textContent = state.closeToday;
+        els.notifCount.textContent = Object.keys(state.settings).length;
+      },
+      filterAndSortLogs: () => {
+        state.filteredLogs = state.logs.filter(log => {
+          if (state.filterType === 'all') return true;
+          const status = utils.extractStatus(log.value);
+          return status === state.filterType;
+        });
+        state.filteredLogs.sort((a,b) => state.sortNewest ? b.ts - a.ts : a.ts - b.ts);
+        els.logsBody.innerHTML = '';
+        state.filteredLogs.forEach(log => ui.addLogRow(log.key, log.value, log.ts));
+      },
+      addLogRow: (key, val, ts) => {
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-slate-700/20 transition-colors';
+        const timestamp = ts || utils.parseTimestamp(key, val);
+        const timeStr = utils.formatDateTime(timestamp);
+        const status = utils.extractStatus(val);
+        const displayStatus = status || (typeof val === 'object' ? JSON.stringify(val) : String(val));
+        const color = status === 'open' ? 'text-green-400' : status === 'closed' ? 'text-red-400' : 'text-slate-300';
+        tr.innerHTML = `
+          <td class="p-3 text-cyan-400">${utils.sanitize(timeStr)}</td>
+          <td class="p-3 ${color}">${utils.sanitize(displayStatus)}</td>
+        `;
+        els.logsBody.appendChild(tr);
+      }
+    };
+
+    // ============ PROCESSOR ============
+    const processor = {
+      processLogs: () => {
+        state.reset();
+        state.logs.forEach(log => {
+          const status = utils.extractStatus(log.value);
+          if (status === 'open') state.openCount++;
+          if (status === 'closed') state.closeCount++;
+          if (!isNaN(log.ts)) {
+            if (utils.isToday(log.ts)) {
+              if (status === 'open') state.openToday++;
+              if (status === 'closed') state.closeToday++;
+            }
+            const hour = utils.toWIB(new Date(log.ts)).getHours();
+            state.timelineData[hour]++;
+          }
+        });
+        state.statusData = { open: state.openCount, closed: state.closeCount };
+        ui.updateMetrics();
+        charts.update();
+        ui.filterAndSortLogs();
+      }
+    };
+
+    // ============ CHARTS ============
+    const charts = {
+      timeline: null, pie: null,
+      init: () => {
+        const commonOptions = { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#94a3b8', font: { family: 'Inter' } } } } };
+        charts.timeline = new Chart($('timelineChart'), {
+          type: 'line',
+          data: {
+            labels: Array.from({length:24}, (_,i) => `${i}:00`),
+            datasets: [{ label: 'Activity', data: state.timelineData, borderColor: '#22d3ee', backgroundColor: 'rgba(34, 211, 238, 0.1)', tension: 0.4, fill: true, pointBackgroundColor: '#22d3ee', pointBorderColor: '#fff', pointBorderWidth: 2, pointRadius: 3 }]
+          },
+          options: {
+            ...commonOptions,
+            scales: {
+              y: { beginAtZero: true, grid: { color: 'rgba(100, 116, 139, 0.1)' }, ticks: { color: '#94a3b8' } },
+              x: { grid: { color: 'rgba(100, 116, 139, 0.1)' }, ticks: { color: '#94a3b8' } }
+            }
+          }
+        });
+        charts.pie = new Chart($('pieChart'), {
+          type: 'doughnut',
+          data: { labels: ['Open','Closed'], datasets: [{ data: [state.statusData.open, state.statusData.closed], backgroundColor: ['#22c55e','#ef4444'], borderColor:['#16a34a','#dc2626'], borderWidth: 2 }]},
+          options: { ...commonOptions, cutout: '70%' }
+        });
+      },
+      update: () => {
+        if (charts.timeline) { charts.timeline.data.datasets[0].data = state.timelineData; charts.timeline.update('none'); }
+        if (charts.pie) { charts.pie.data.datasets[0].data = [state.statusData.open, state.statusData.closed]; charts.pie.update('none'); }
+      }
+    };
+
+    // ============ SETTINGS UI (render / handlers) ============
+    const settings = {
+      render: (data) => {
+        state.settings = data || {};
+        els.settingsBody.innerHTML = '';
+        const entries = Object.entries(state.settings);
+        if (!entries.length) {
+          els.settingsBody.innerHTML = '<tr><td class="p-3 text-slate-500 text-center" colspan="5">No active rules</td></tr>';
+          ui.updateMetrics();
+          return;
+        }
+
+        entries.forEach(([key, obj]) => {
+          const phone = obj.phone || '';
+          const when = obj.triggerEvent || 'both';
+          const delay = (obj.delaySeconds ?? 0);
+          // display ID: if numeric, show number; else show short key
+          const idDisplay = (/^\d+$/.test(key)) ? key : (String(key).length > 8 ? String(key).substring(0,8) : String(key));
+          const whenColors = { open: 'bg-green-500/20 text-green-400', closed: 'bg-red-500/20 text-red-400', both: 'bg-purple-500/20 text-purple-400' };
+          const tr = document.createElement('tr');
+          tr.className = 'hover:bg-slate-700/20';
+          tr.innerHTML = `
+            <td class="p-2 text-xs font-mono text-slate-300">${utils.sanitize(idDisplay)}</td>
+            <td class="p-2 text-xs">${utils.sanitize(phone)}</td>
+            <td class="p-2 text-xs"><span class="px-2 py-1 rounded ${whenColors[when] || whenColors.both}">${utils.sanitize(when)}</span></td>
+            <td class="p-2 text-xs font-mono">${utils.sanitize(String(delay))}</td>
+            <td class="p-2">
+              <button data-key="${key}" class="edit-btn text-cyan-400 hover:text-cyan-300 mr-2">✎</button>
+              <button data-key="${key}" class="del-btn text-red-400 hover:text-red-300">✕</button>
+            </td>
+          `;
+          els.settingsBody.appendChild(tr);
+        });
+
+        settings.attachHandlers();
+        ui.updateMetrics();
+      },
+
+      attachHandlers: () => {
+        els.settingsBody.querySelectorAll('.edit-btn').forEach(btn => {
+          btn.onclick = async (e) => {
+            const key = e.currentTarget.dataset.key;
+            try {
+              const snap = await get(ref(db, `/settings/notifications/${key}`));
+              const data = snap.val();
+              if (!data) return;
+              els.phone.value = data.phone || '';
+              els.alert.value = data.alertMessage || '';
+              els.when.value = data.triggerEvent || 'both';
+              els.delay.value = String(data.delaySeconds ?? 0);
+              // mark edit key
+              els.phone.dataset.editKey = key;
+              els.addNew.checked = false;
+              ui.showToast('Loaded rule for edit', 'info');
+            } catch (err) {
+              console.error('Load rule err', err);
+              ui.showToast('Error loading rule', 'error');
+            }
+          };
+        });
+
+        els.settingsBody.querySelectorAll('.del-btn').forEach(btn => {
+          btn.onclick = async (e) => {
+            const key = e.currentTarget.dataset.key;
+            if (!confirm('Delete this rule?')) return;
+            ui.showLoader(true);
+            try {
+              await remove(ref(db, `/settings/notifications/${key}`));
+              ui.showToast('Rule deleted', 'success');
+            } catch (err) {
+              console.error('Delete rule err', err);
+              ui.showToast('Error deleting rule', 'error');
+            }
+            ui.showLoader(false);
+          };
+        });
+      }
+    };
+
+    // ============ HANDLERS ============
+    const handlers = {
+      refreshLogs: async () => {
+        ui.showLoader(true);
+        try {
+          const snap = await get(query(ref(db, '/pagar/logs'), limitToLast(CONFIG.maxLogs)));
+          const data = snap.val() || {};
+          state.logs = Object.entries(data).map(([k,v]) => ({ key: k, value: v, ts: utils.parseTimestamp(k, v) }));
+          processor.processLogs();
+          ui.showToast('Logs refreshed', 'success');
+        } catch (err) {
+          ui.showToast('Error loading logs', 'error');
+        }
+        ui.showLoader(false);
+      },
+
+      clearLogs: async () => {
+        if (!confirm('Clear all logs?')) return;
+        ui.showLoader(true);
+        try {
+          await remove(ref(db, '/pagar/logs'));
+          els.logsBody.innerHTML = '';
+          state.logs = []; state.filteredLogs = [];
+          processor.processLogs();
+          ui.showToast('Logs cleared', 'success');
+        } catch (err) {
+          ui.showToast('Error clearing logs', 'error');
+        }
+        ui.showLoader(false);
+      },
+
+      sortLogs: () => {
+        state.sortNewest = !state.sortNewest;
+        $('sortLogs').textContent = state.sortNewest ? '⇅ Newest' : '⇅ Oldest';
+        ui.filterAndSortLogs();
+      },
+
+      filterLogs: (e) => {
+        state.filterType = e.target.value;
+        ui.filterAndSortLogs();
+      },
+
+      downloadLogs: () => {
+        const timestamp = utils.toWIB(new Date()).getTime();
+        const filename = `gate-logs-${state.filterType}-${state.sortNewest ? 'newest' : 'oldest'}-${timestamp}.csv`;
+        utils.downloadCSV(state.filteredLogs, filename);
+        ui.showToast(`Downloaded ${state.filteredLogs.length} records`, 'success');
+      },
+
+      submitForm: async (e) => {
+        e.preventDefault();
+        const phoneRaw = els.phone.value.trim();
+        const phoneDigits = utils.phoneToKey(phoneRaw);
+        if (!phoneDigits) { ui.showToast('Invalid phone number', 'error'); return; }
+
+        const payload = {
+          phone: phoneRaw.startsWith('+') ? phoneRaw : `+${phoneDigits}`,
+          alertMessage: els.alert.value.trim().substring(0,200),
+          triggerEvent: els.when.value || 'both',
+          delaySeconds: parseInt(els.delay.value || '0', 10),
+          enabled: true,
+          updatedAt: Date.now()
+        };
+
+        ui.showLoader(true);
+        try {
+          const editKey = els.phone.dataset.editKey;
+          const forceNew = els.addNew.checked;
+
+          if (editKey && !forceNew) {
+            // edit existing key
+            payload.createdAt = state.settings[editKey]?.createdAt || Date.now();
+            await set(ref(db, `/settings/notifications/${editKey}`), payload);
+            delete els.phone.dataset.editKey;
+          } else {
+            // allocate numeric ID using transaction (nextId)
+            const counterRef = ref(db, '/settings/meta/nextId');
+            const tx = await runTransaction(counterRef, (curr) => {
+              return (curr || 0) + 1;
+            });
+            const nextId = tx.snapshot.val();
+            const keyToWrite = String(nextId);
+            payload.createdAt = Date.now();
+            await set(ref(db, `/settings/notifications/${keyToWrite}`), payload);
+          }
+
+          els.form.reset();
+          ui.showToast('Configuration saved!', 'success');
+        } catch (err) {
+          console.error('Save error:', err);
+          ui.showToast('Error saving config', 'error');
+        }
+        ui.showLoader(false);
+      }
+    };
+
+    // ============ FIREBASE LISTENERS ============
+    onValue(ref(db, '/pagar/status'), snap => ui.updateStatus(Boolean(snap.val())));
+    onValue(ref(db, '/pagar/lastUpdate'), snap => {
+      const val = snap.val();
+      state.lastUpdate = val ? utils.parseTimestamp('', val) : Date.now();
+      els.lastUpdate.textContent = `Last update: ${utils.formatDateTime(state.lastUpdate)}`;
+    });
+    onValue(query(ref(db, '/pagar/logs'), limitToLast(CONFIG.maxLogs)), snap => {
+      const data = snap.val() || {};
+      state.logs = Object.entries(data).map(([k,v]) => ({ key: k, value: v, ts: utils.parseTimestamp(k, v) }));
+      processor.processLogs();
+    });
+    onValue(ref(db, '/settings/notifications'), snap => {
+  const val = snap.val();
+  if (!val) {
+    // nothing there => reset counter to 0
+    set(ref(db, '/settings/meta/nextId'), 0).catch(()=>{/* ignore */});
+  }
+  settings.render(val);
+});
+
+    // ============ BIND EVENTS ============
+    $('refreshLogs').onclick = handlers.refreshLogs;
+    $('clearLogs').onclick = handlers.clearLogs;
+    $('sortLogs').onclick = handlers.sortLogs;
+    $('filterLogs').onchange = handlers.filterLogs;
+    $('downloadLogs').onclick = handlers.downloadLogs;
+    $('testPreview').onclick = () => ui.showToast('Test clicked', 'info'); // kept minimal
+    els.alert.oninput = () => {}; // no preview
+    els.form.onsubmit = handlers.submitForm;
+
+    // ============ INIT ============
+    charts.init();
+    ui.showLoader(false);
+  </script>
+</body>
+</html>
